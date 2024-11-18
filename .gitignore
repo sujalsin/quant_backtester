@@ -1,0 +1,32 @@
+# Compiled object files
+*.o
+*.obj
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Build directories
+/build/
+/dist/
+/bin/
+/obj/
+
+# Python virtual environments
+venv/
+env/
+__pycache__/
+*.pyc
+
+# MacOS specific
+.DS_Store
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
