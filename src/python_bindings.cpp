@@ -69,18 +69,26 @@ PYBIND11_MODULE(backtester_core, m) {
 
     py::class_<quant::Strategy, PyStrategy>(m, "Strategy")
         .def(py::init<>())
-        .def("should_enter", &quant::Strategy::should_enter)
-        .def("should_exit", &quant::Strategy::should_exit);
+        .def("should_enter", [](quant::Strategy& self, const quant::Asset& asset) {
+            return self.should_enter(asset);
+        })
+        .def("should_exit", [](quant::Strategy& self, const quant::Asset& asset, const quant::Position& position) {
+            return self.should_exit(asset, position);
+        });
 
     py::class_<quant::BacktestEngine>(m, "BacktestEngine")
         .def(py::init<>())
         .def("add_data", &quant::BacktestEngine::add_data)
         .def("set_strategy", [](quant::BacktestEngine& self, py::object strat) {
-            if (py::isinstance<PyStrategy>(strat)) {
-                auto* ptr = strat.cast<PyStrategy*>();
-                self.set_strategy(std::unique_ptr<quant::Strategy>(new PyStrategy(*ptr)));
-            } else {
-                throw py::type_error("Expected a Strategy object");
+            try {
+                if (py::isinstance<PyStrategy>(strat)) {
+                    auto* ptr = strat.cast<PyStrategy*>();
+                    self.set_strategy(std::unique_ptr<quant::Strategy>(ptr));
+                } else {
+                    throw py::type_error("Expected a Strategy object");
+                }
+            } catch (const std::exception& e) {
+                throw py::type_error(std::string("Error setting strategy: ") + e.what());
             }
         })
         .def("set_initial_capital", &quant::BacktestEngine::set_initial_capital)

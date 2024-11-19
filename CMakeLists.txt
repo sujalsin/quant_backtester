@@ -36,7 +36,7 @@ else()
 endif()
 
 # Find required packages
-find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+find_package(Python3 3.12 EXACT COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(fmt REQUIRED)
 find_package(nlohmann_json REQUIRED)
