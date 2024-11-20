@@ -12,7 +12,9 @@ struct Asset {
     std::string symbol;
     std::string asset_class;
     double price;
-    double volume;
+    double high;
+    double low;
+    int64_t volume;
     std::chrono::system_clock::time_point timestamp;
 };
 
@@ -36,9 +38,10 @@ struct TradeResult {
 
 class Strategy {
 public:
+    virtual ~Strategy() = default;
     virtual bool should_enter(const Asset& asset) = 0;
     virtual bool should_exit(const Asset& asset, const Position& position) = 0;
-    virtual ~Strategy() = default;
+    virtual double calculate_position_size(const Asset& asset, double capital) = 0;
 };
 
 class BacktestEngine {

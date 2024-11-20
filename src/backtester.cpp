@@ -23,7 +23,11 @@ void BacktestEngine::set_commission_rate(double rate) {
 }
 
 double BacktestEngine::calculate_position_size(const Asset& asset, double current_capital) const {
-    return current_capital * max_position_size_;
+    // Calculate position size based on max_position_size_ and current capital
+    double max_dollars = current_capital * max_position_size_;
+    // Ensure we can afford the commission
+    double commission = max_dollars * commission_rate_;
+    return max_dollars - commission;
 }
 
 bool BacktestEngine::check_risk_limits(const Position& pos, const Asset& asset, double current_capital) const {
@@ -56,27 +60,61 @@ void BacktestEngine::run() {
     current_capital_ = initial_capital_;
     std::unordered_map<std::string, Position> current_positions;
     equity_curve_.clear();
-    equity_curve_.push_back(current_capital_);
     trade_history_.clear();
 
-    // Process each asset's data
+    // Get all unique timestamps from all assets
+    std::vector<std::chrono::system_clock::time_point> timestamps;
     for (const auto& [symbol, data] : market_data_) {
         for (const auto& asset : data) {
+            timestamps.push_back(asset.timestamp);
+        }
+    }
+    
+    // Sort timestamps and remove duplicates
+    std::sort(timestamps.begin(), timestamps.end());
+    timestamps.erase(std::unique(timestamps.begin(), timestamps.end()), timestamps.end());
+
+    // Process data chronologically across all assets
+    for (const auto& timestamp : timestamps) {
+        double portfolio_value = current_capital_;
+        std::unordered_map<std::string, double> unrealized_pnls;
+        
+        // Update unrealized P&L for all positions
+        for (const auto& [symbol, position] : current_positions) {
+            auto it = std::find_if(market_data_[symbol].begin(), market_data_[symbol].end(),
+                                 [&timestamp](const Asset& a) { return a.timestamp == timestamp; });
+            if (it != market_data_[symbol].end()) {
+                double unrealized_pnl = position.quantity * (it->price - position.entry_price);
+                unrealized_pnls[symbol] = unrealized_pnl;
+                portfolio_value += unrealized_pnl;
+            }
+        }
+        
+        // Record portfolio value in equity curve
+        equity_curve_.push_back(portfolio_value);
+
+        // Process signals for each asset at this timestamp
+        for (auto& [symbol, data] : market_data_) {
+            auto it = std::find_if(data.begin(), data.end(),
+                                 [&timestamp](const Asset& a) { return a.timestamp == timestamp; });
+            if (it == data.end()) continue;
+            
+            const Asset& asset = *it;
+            
             // Check for exit signals on existing positions
             auto pos_it = current_positions.find(symbol);
             if (pos_it != current_positions.end()) {
                 bool should_exit = strategy_->should_exit(asset, pos_it->second) ||
-                                 !check_risk_limits(pos_it->second, asset, current_capital_);
+                                 check_risk_limits(pos_it->second, asset, portfolio_value);
                 
                 if (should_exit) {
-                    // Calculate P&L
-                    double pnl = (asset.price - pos_it->second.entry_price) * pos_it->second.quantity;
+                    // Calculate P&L including unrealized P&L
+                    double pnl = unrealized_pnls[symbol];
                     double commission = std::abs(asset.price * pos_it->second.quantity * commission_rate_);
                     pnl -= commission;
                     
                     // Update capital
                     current_capital_ += pnl;
-                    equity_curve_.push_back(current_capital_);
                     
                     // Record trade
                     TradeResult trade{
@@ -96,17 +134,17 @@ void BacktestEngine::run() {
             }
             // Check for entry signals when we don't have a position
             else if (strategy_->should_enter(asset)) {
-                double position_size = calculate_position_size(asset, current_capital_);
-                double quantity = position_size / asset.price;
-                double commission = std::abs(asset.price * quantity * commission_rate_);
+                double position_size = strategy_->calculate_position_size(asset, current_capital_);
+                double commission = std::abs(asset.price * position_size * commission_rate_);
+                double position_cost = asset.price * position_size;
                 
-                // Only enter if we can afford commission
-                if (position_size + commission <= current_capital_) {
-                    current_capital_ -= commission;
-                    equity_curve_.push_back(current_capital_);  // Update equity curve after commission
+                // Only enter if we can afford position cost and commission
+                if (position_size > 0 && position_cost + commission <= current_capital_) {
+                    // Deduct position cost and commission from capital
+                    current_capital_ -= (position_cost + commission);
                     Position pos{
                         symbol,
-                        quantity,
+                        position_size,
                         asset.price,
                         asset.timestamp
                     };
